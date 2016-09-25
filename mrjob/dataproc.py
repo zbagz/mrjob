@@ -137,7 +137,7 @@ def _gcp_zone_uri(project, zone):
 
 
 def _gcp_instance_group_config(
-        project, zone, count, instance_type, is_preemptible=False):
+        project, zone, count, instance_type, is_preemptible=False, disk_size=500):
     zone_uri = _gcp_zone_uri(project, zone)
     machine_uri = "%(zone_uri)s/machineTypes/%(machine_type)s" % dict(
         zone_uri=zone_uri, machine_type=instance_type)
@@ -145,7 +145,8 @@ def _gcp_instance_group_config(
     return dict(
         numInstances=count,
         machineTypeUri=machine_uri,
-        isPreemptible=is_preemptible
+        isPreemptible=is_preemptible,
+        diskConfig=dict(bootDiskSizeGb=disk_size),
     )
 ########## END -  Helper fxns for _cluster_create_args ###########
 
@@ -205,6 +206,7 @@ class DataprocRunnerOptionStore(RunnerOptionStore):
         'region',
         'zone',
         'image_version',
+        'gcp_jobconf',
         'check_cluster_every',
 
         'instance_type',
@@ -1052,7 +1054,8 @@ class DataprocJobRunner(MRJobRunner):
             project=self._gcp_project, zone=self._gce_zone,
             count=self._opts['num_task_instances'],
             instance_type=self._opts['task_instance_type'],
-            is_preemptible=True
+            is_preemptible=True,
+            disk_size=42,
         )
 
         cluster_config['masterConfig'] = master_conf
@@ -1060,10 +1063,16 @@ class DataprocJobRunner(MRJobRunner):
         if self._opts['num_task_instances']:
             cluster_config['secondaryWorkerConfig'] = secondary_worker_conf
 
+        cluster_config['softwareConfig'] = dict()
         # See - https://cloud.google.com/dataproc/dataproc-versions
         if self._opts['image_version']:
-            cluster_config['softwareConfig'] = dict(
-                imageVersion=self._opts['image_version'])
+            cluster_config['softwareConfig']['imageVersion'] = self._opts['image_version']
+        # See - https://cloud.google.com/dataproc/concepts/cluster-properties
+        if self._opts['gcp_jobconf']:
+            cluster_config['softwareConfig']['properties'] = dict()
+            for prefix, props in self._opts['gcp_jobconf'].items():
+                for prop, value in props.items():
+                    cluster_config['softwareConfig']['properties'][prefix + ":" + prop] = value 
 
         return dict(projectId=self._gcp_project,
                     clusterName=self._cluster_id,
